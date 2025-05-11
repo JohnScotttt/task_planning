@@ -39,18 +39,53 @@ class TaskPlanner:
         Returns:
             List[Dict]: 原子操作序列
         """
+        # 检查目标物体是否存在
+        target_object = task_goal.get("target_object", "")
+        if target_object:
+            target_exists = False
+            for obj in scene_info.get("objects", []):
+                if target_object in obj.get("name", ""):
+                    target_exists = True
+                    break
+            if not target_exists:
+                raise ValueError(f"错误：在场景中未找到目标物体 '{target_object}'")
+        
+        # 检查目标位置是否存在
+        destination = task_goal.get("destination", "")
+        if destination:
+            dest_exists = False
+            for obj in scene_info.get("objects", []):
+                if (destination in obj.get("name", "") or 
+                    (obj.get("type") == "cabinet" and "柜" in destination)):
+                    dest_exists = True
+                    break
+            if not dest_exists:
+                raise ValueError(f"错误：在场景中未找到目标位置 '{destination}'")
+        
         # 1. 任务分解
         sub_tasks = self._decompose_task(task_goal, scene_info)
         
         # 2. 生成原子操作序列
         action_sequence = []
         for sub_task in sub_tasks:
-            actions = self._generate_actions(sub_task, scene_info)
-            action_sequence.extend(actions)
+            try:
+                actions = self._generate_actions(sub_task, scene_info)
+                if not actions:
+                    print(f"警告：无法为子任务生成动作：{sub_task}")
+                action_sequence.extend(actions)
+            except Exception as e:
+                print(f"警告：处理子任务时出错：{str(e)}")
+                continue
         
         # 3. 解决规划冲突
-        action_sequence = self._resolve_conflicts(action_sequence, scene_info)
+        try:
+            action_sequence = self._resolve_conflicts(action_sequence, scene_info)
+        except Exception as e:
+            print(f"警告：解决规划冲突时出错：{str(e)}")
         
+        if not action_sequence:
+            raise ValueError("错误：无法生成有效的执行计划")
+            
         return action_sequence
     
     def _decompose_task(self, task_goal: Dict, scene_info: Dict = None) -> List[Dict]:
@@ -91,8 +126,19 @@ class TaskPlanner:
                         dest_name = obj["name"]
                         break
         
+        if not obj_location and target_object:
+            print(f"警告：未找到目标物体 '{target_object}' 的具体位置")
+            
+        if not dest_name and destination:
+            print(f"警告：未找到目标位置 '{destination}' 的具体位置")
+        
         # 3. 针对不同动作类型分解
         if action == "place":
+            if not target_object:
+                raise ValueError("错误：放置动作需要指定目标物体")
+            if not destination:
+                raise ValueError("错误：放置动作需要指定目标位置")
+                
             sub_tasks.extend([
                 {
                     "action": ActionType.NAVIGATE,
@@ -115,6 +161,11 @@ class TaskPlanner:
                 }
             ])
         elif action == "move":
+            if not target_object:
+                raise ValueError("错误：移动动作需要指定目标物体")
+            if not destination:
+                raise ValueError("错误：移动动作需要指定目标位置")
+                
             sub_tasks.extend([
                 {
                     "action": ActionType.NAVIGATE,
@@ -137,6 +188,9 @@ class TaskPlanner:
                 }
             ])
         elif action == "grasp":
+            if not target_object:
+                raise ValueError("错误：抓取动作需要指定目标物体")
+                
             sub_tasks.extend([
                 {
                     "action": ActionType.NAVIGATE,
@@ -149,6 +203,9 @@ class TaskPlanner:
                 }
             ])
         elif action == "rotate":
+            if not target_object:
+                raise ValueError("错误：旋转动作需要指定目标物体")
+                
             sub_tasks.extend([
                 {
                     "action": ActionType.NAVIGATE,
@@ -163,6 +220,9 @@ class TaskPlanner:
             ])
         else:
             # 默认只导航到目标
+            if not target_object:
+                raise ValueError("错误：导航动作需要指定目标")
+                
             sub_tasks.append({
                 "action": ActionType.NAVIGATE,
                 "target": obj_location or target_object,
